@@ -19,7 +19,6 @@ my %required_modules = (
 	"Excel::Writer::XLSX::Utility" => undef,
 	"File::Copy"                   => undef,
 	"File::Find"                   => undef,
-	"File::Remove"                 => undef,
 	"File::Spec"                   => undef,
 	"IO::Handle"                   => undef,
 	"JIRA::REST"                   => undef,
@@ -160,6 +159,8 @@ sub create_report_file_from_template {
 			$report_workbook->Close();
 		}
 	} else {
+		my $old_report_file_name = convert_file_name_to_relative($report_file_name);
+		unlink("$old_report_file_name") or croak("$!") if -e "$old_report_file_name";
 		copy("$template_file_name", "$report_file_name");
 	}
 	
@@ -848,7 +849,7 @@ sub check_for_updates {
 		print "Update is available\n";
 		
 		copy("$new_file", "$current_file");
-		remove("$new_file");
+		unlink("$new_file") or croak("Can't remove file $new_file: $!");
 		
 		print "\n\n\nScript was updated. Please rerun script\n";
 		exit 0;
