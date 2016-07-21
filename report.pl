@@ -831,7 +831,7 @@ sub check_for_updates {
 		branch => 'master'
 	);
 	
-	next if defined $conf_obj->{settings}->{check_script_for_updates} and not $conf_obj->{settings}->{check_script_for_updates};
+	return if defined $conf_obj->{settings}->{check_script_for_updates} and not $conf_obj->{settings}->{check_script_for_updates};
 	
 	print "\nChecking for updates: ";
 	
