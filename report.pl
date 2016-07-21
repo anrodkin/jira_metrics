@@ -38,8 +38,6 @@ import_required_modules(\%required_modules);
 
 STDOUT->autoflush(1);           # autoflush for STDOUT
 
-check_for_updates();
-
 open my $input_file_handle, "<", "settings.json" or croak $!;
 my @lines = <$input_file_handle>;
 close $input_file_handle;
@@ -47,6 +45,7 @@ close $input_file_handle;
 my $json     = JSON->new->allow_nonref;
 my $configuration = $json->decode(join('', @lines));
 
+check_for_updates($configuration);
 check_mandatory_configuration($configuration);
 add_additional_configuration($configuration);
 
@@ -823,6 +822,7 @@ sub add_additional_configuration {
 }
 
 sub check_for_updates {
+	my $conf_obj     = shift;
 	my $current_file = convert_file_name_to_relative($0);
 	my $new_file     = "tmp.txt";
 	my $git          = WWW::Github::Files->new(
@@ -830,6 +830,8 @@ sub check_for_updates {
 		resp   => 'jira_metrics',
 		branch => 'master'
 	);
+	
+	next if defined $conf_obj->{settings}->{check_script_for_updates} and not $conf_obj->{settings}->{check_script_for_updates};
 	
 	print "\nChecking for updates: ";
 	
