@@ -8,23 +8,26 @@ use CPAN;
 use CPAN::Shell;
 
 my %required_modules = (
-	"Archive::Zip" => undef,
-	"Carp"         => undef,
-	"criticism"    => ['harsh'], # Checks code style according to Perl Best Practices: 
-							  # 5 - gentle (the weakest), stern, harsh, cruel , 1 - brutal (the strongest)
-	"Data::Dumper" => undef,
-	"DateTime"     => undef,
-	"DateTime::Format::Strptime" => undef,
+	"Archive::Zip"                 => undef,
+	"Carp"                         => undef,
+	"criticism"                    => ['harsh'], # Checks code style according to Perl Best Practices: 
+							                     # 5 - gentle (the weakest), stern, harsh, cruel , 1 - brutal (the strongest)
+	"Crypt::Checksum"              => ['crc32_file_hex'],
+	"Data::Dumper"                 => undef,
+	"DateTime"                     => undef,
+	"DateTime::Format::Strptime"   => undef,
 	"Excel::Writer::XLSX::Utility" => undef,
-	"File::Copy"   => undef,
-	"File::Find"   => undef,
-	"File::Spec"   => undef,
-	"IO::Handle"   => undef,
-	"JIRA::REST"   => undef,
-	"JSON"         => undef,
-	"Statistics::Descriptive" => undef,
-	"String::ProgressBar" => undef,
-	"Win32::OLE"   => undef,
+	"File::Copy"                   => undef,
+	"File::Find"                   => undef,
+	"File::Remove"                 => undef,
+	"File::Spec"                   => undef,
+	"IO::Handle"                   => undef,
+	"JIRA::REST"                   => undef,
+	"JSON"                         => undef,
+	"Statistics::Descriptive"      => undef,
+	"String::ProgressBar"          => undef,
+	"Win32::OLE"                   => undef,
+	"WWW::Github::Files"           => undef,
 );
 
 print "Checking installed modules..\n";
@@ -34,6 +37,8 @@ print "\nImport required modules..\n";
 import_required_modules(\%required_modules);
 
 STDOUT->autoflush(1);           # autoflush for STDOUT
+
+check_for_updates();
 
 open my $input_file_handle, "<", "settings.json" or croak $!;
 my @lines = <$input_file_handle>;
@@ -167,6 +172,16 @@ sub convert_file_name_to_absolute {
 	
 	if(not File::Spec->file_name_is_absolute($file_name)) {
 		$file_name = File::Spec->rel2abs($file_name);
+	}
+	
+	return $file_name;
+}
+
+sub convert_file_name_to_relative {
+	my $file_name = shift;
+	
+	if(File::Spec->file_name_is_absolute($file_name)) {
+		$file_name = File::Spec->abs2rel($file_name);
 	}
 	
 	return $file_name;
@@ -807,6 +822,41 @@ sub add_additional_configuration {
 	return;
 }
 
+sub check_for_updates {
+	my $current_file = convert_file_name_to_relative($0);
+	my $new_file     = "tmp.txt";
+	my $git          = WWW::Github::Files->new(
+		author => 'anrodkin',
+		resp   => 'jira_metrics',
+		branch => 'master'
+	);
+	
+	print "\nChecking for updates: ";
+	
+	my $file = $git->get_file("/$current_file");
+	
+	open my $output_file_handle, ">", "$new_file" or croak $!;
+	print $output_file_handle $file;
+	close $output_file_handle;
+	
+	my $checksum_for_current_file = crc32_file_hex($current_file);
+	my $checksum_for_new_file     = crc32_file_hex($new_file);
+	
+	if("$checksum_for_current_file" ne "$checksum_for_new_file") {
+		print "Update is available\n";
+		
+		copy("$new_file", "$current_file");
+		remove("$new_file");
+		
+		print "\n\n\nScript was updated. Please rerun script\n";
+		exit 0;
+	}
+	
+	print "No updates\n";
+	
+	return;
+}
+
 sub check_and_install_required_modules {
 	my $required_modules = shift;
 	
@@ -815,6 +865,11 @@ sub check_and_install_required_modules {
 	foreach my $module (@not_installed) {
 		print "Module missed: $module. Installing..\n";
 		CPAN->install("$module");
+	}
+	
+	if($#not_installed >= 0) {
+		print "\n\n\nMissed modules were installed. Please rerun script.\n";
+		exit 0;
 	}
 	
 	return;
