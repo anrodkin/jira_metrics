@@ -346,6 +346,7 @@ sub add_time_tracking_data {
 	return if not defined $query->{get_estimation_time};
 	
 	my @fields   = @{$query->{get_estimation_time}};
+	$_ = lc foreach @fields;                          # make all values lower case
 	
 	foreach my $field (@fields) {
 		my @estimated_time = get_time($conf_obj, $field, $issues, $subtasks);
@@ -693,6 +694,7 @@ sub get_period { # in hours
 sub has_changes_in_field {
 	my $field = shift;
 	my $items = shift;
+	
 	my $field_regexp = make_regexp_from_string($field);
 	
 	my @status_items = grep { $_->{field} =~ /^$field_regexp$/ix } @{$items};
