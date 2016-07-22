@@ -855,6 +855,7 @@ sub check_for_updates {
 		exit 0;
 	}
 	
+	unlink("$new_file") or croak("Can't remove file $new_file: $!");
 	print "No updates\n";
 	
 	return;
