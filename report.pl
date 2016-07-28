@@ -62,6 +62,12 @@ sub create_report {
 	my $report_file_name   = $settings->{report_file};
 	my $copy_template_to_report = $settings->{copy_template_to_report};
 	
+	if(defined $settings->{add_date_to_report_file} and $settings->{add_date_to_report_file}) {
+		my @file_name_parts = split(/\./x, $report_file_name);
+		my $file_extension = pop @file_name_parts;
+		$report_file_name = join(".", @file_name_parts) . join("", " ", today(), ".", $file_extension);
+	}
+	
 	$report_file_name   = convert_file_name_to_absolute($report_file_name);
 	$template_file_name = convert_file_name_to_absolute($template_file_name);
 	
