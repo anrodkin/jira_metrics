@@ -50,13 +50,29 @@ add_additional_configuration($configuration);
 
 my $jira_settings = $configuration->{jira};
 my $jira     = connect_to_jira($jira_settings->{url}, $jira_settings->{login}, $jira_settings->{password});
-my $data     = load_query_data($jira, $configuration);
+my $query_data     = load_query_data($jira, $configuration);
 
-create_report($configuration, $data);
+make_keys_uppercase($query_data);
+create_report($configuration, $query_data);
+
+sub make_keys_uppercase {
+	my $data = shift;
+	
+	foreach my $key (keys %{$data}) {
+		my $upper_case_key = uc($key);
+
+		if($upper_case_key ne $key) {
+			$data->{$upper_case_key} = $data->{$key};
+			delete $data->{$key};
+		}
+	}
+	
+	return;
+}
 
 sub create_report {
 	my $conf_obj   = shift;
-	my $query_data = shift;
+	my $values = shift;
 	my $settings = $conf_obj->{settings};
 	my $template_file_name = $settings->{template_file};
 	my $report_file_name   = $settings->{report_file};
@@ -76,7 +92,7 @@ sub create_report {
 	my $excel = create_excel_object();
 	
 	create_report_file_from_template($excel, $template_file_name, $report_file_name, $copy_template_to_report);
-	replace_keys_to_data($excel, $report_file_name, $query_data);
+	replace_keys_to_data($excel, $report_file_name, $values);
 	
 	$excel->Quit();
 	
@@ -88,7 +104,7 @@ sub create_report {
 sub replace_keys_to_data {
 	my $excel            = shift;
 	my $report_file_name = shift;
-	my $query_data       = shift;
+	my $values           = shift;
 
 	my $workbook = $excel->Workbooks->Open($report_file_name);
 	my $worksheets_count = $workbook->Worksheets->Count;
@@ -105,9 +121,10 @@ sub replace_keys_to_data {
 			foreach my $column (0..$last_column) {
 				my $cell_address = xl_rowcol_to_cell($row, $column);
 				my $cell_value = $worksheet->Range($cell_address)->Value;
+				$cell_value = uc($cell_value) if defined $cell_value;
 				
-				if(defined $cell_value and defined $query_data->{uc("$cell_value")}) {
-					$worksheet->Range($cell_address)->{Value} = "" . $query_data->{uc("$cell_value")};
+				if(defined $cell_value and defined $values->{"$cell_value"}) {
+					$worksheet->Range($cell_address)->{Value} = "" . $values->{"$cell_value"};
 				}
 			}
 		}
@@ -205,9 +222,9 @@ sub load_query_data {
 		print "\nGetting data for $query->{template_key}...\n";
 		
 		my ($issues, $subtasks) = search_issues($jira, $query);
-		$result{uc("$query->{template_key}")} = "" . ($#{$issues} + 1);
-		$result{uc("report_date")} = "" . today();
-		$result{uc("work_week_number")} = "" . get_work_week_number();
+		$result{"$query->{template_key}"} = "" . ($#{$issues} + 1);
+		$result{"report_date"} = "" . today();
+		$result{"work_week_number"} = "" . get_work_week_number();
 		
 		add_period_data($query, \%result);
 		add_priority_data($query, $issues, \%result);
@@ -371,7 +388,7 @@ sub add_time_tracking_data {
 	
 	foreach my $field (@fields) {
 		my @estimated_time = get_time($conf_obj, $field, $issues, $subtasks);
-		$key = replace_spaces_by_emphasis(uc("$query->{template_key}_$field"));
+		$key = replace_spaces_by_emphasis("$query->{template_key}_$field");
 		add_part_of_data($conf_obj, $conf_obj->{fields}->{$field}, $result, $key, @estimated_time);
 		
 		if(defined $query->{order_by_priority}) {
@@ -380,7 +397,7 @@ sub add_time_tracking_data {
 			foreach my $priority (@priorities) {
 				my $priority_regexp = make_regexp_from_string($priority);
 				my @estimated_time_for_priority = grep {$_->{priority} =~ /^$priority_regexp$/ix} @estimated_time;
-				$key = replace_spaces_by_emphasis(uc("$query->{template_key}_${field}_$priority"));
+				$key = replace_spaces_by_emphasis("$query->{template_key}_${field}_$priority");
 				add_part_of_data($conf_obj, $conf_obj->{fields}->{$field}, $result, $key, @estimated_time_for_priority);
 			}
 		}
@@ -466,7 +483,7 @@ sub add_status_data {
 	foreach my $status (@statuses) {
 		my $status_regexp = make_regexp_from_string($status);
 		my @times_for_status = grep { $_->{status} =~ /^$status_regexp$/ix } @times;
-		my $key = replace_spaces_by_emphasis(uc("$query->{template_key}" . "_${status}"));
+		my $key = replace_spaces_by_emphasis("$query->{template_key}" . "_${status}");
 		
 		add_part_of_data($conf_obj, $conf_obj->{fields}->{status}, $result, $key, @times_for_status);
 		
@@ -481,7 +498,7 @@ sub add_status_data {
 					and $_->{priority} =~ /^$priority_regexp$/ix 
 				} @times;
 				
-				$key = replace_spaces_by_emphasis(uc("$query->{template_key}" . "_${status}_${priority}"));
+				$key = replace_spaces_by_emphasis("$query->{template_key}" . "_${status}_${priority}");
 
 				add_part_of_data($conf_obj, $conf_obj->{fields}->{status}, $result, $key, @times_for_status);
 			}
@@ -512,17 +529,17 @@ sub add_part_of_data {
 		when(/^$conf_obj->{fields}->{estimated}$/ix) {
 			@data_for_statistic = get_values_from_hash("$conf_obj->{fields}->{estimated}", @times);
 			add_statistic_data($conf_obj, $result, "$key", @data_for_statistic);
-			$result->{uc("$key")} = $result->{uc("${key}_sum")};
+			$result->{"$key"} = $result->{"${key}_sum"};
 		}
 		when(/^$conf_obj->{fields}->{logged}$/ix) {
 			@data_for_statistic = get_values_from_hash("$conf_obj->{fields}->{logged}", @times);
 			add_statistic_data($conf_obj, $result, "$key", @data_for_statistic);
-			$result->{uc("$key")} = $result->{uc("${key}_sum")};
+			$result->{"$key"} = $result->{"${key}_sum"};
 		}
 		when(/^$conf_obj->{fields}->{remaining}$/ix) {
 			@data_for_statistic = get_values_from_hash("$conf_obj->{fields}->{remaining}", @times);
 			add_statistic_data($conf_obj, $result, "$key", @data_for_statistic);
-			$result->{uc("$key")} = $result->{uc("${key}_sum")};
+			$result->{"$key"} = $result->{"${key}_sum"};
 		}
 		default {
 			confess("Unexpected field for adding data!");
@@ -530,7 +547,7 @@ sub add_part_of_data {
 	}
 		
 	my @issues_keys = get_issue_keys(@times);
-	$result->{uc("${key}_JIRA_LINK")} = get_jira_link(@issues_keys);
+	$result->{"${key}_JIRA_LINK"} = get_jira_link(@issues_keys);
 	
 	return;
 }
@@ -566,12 +583,12 @@ sub add_statistic_data {
 	my $stddev  = $stat->standard_deviation();
 	my $sum     = $stat->sum();
 	
-	$result->{uc("$key" . "_min")}     = replace_undefined_value_to_default($conf_obj, $min);
-	$result->{uc("$key" . "_max")}     = replace_undefined_value_to_default($conf_obj, $max);
-	$result->{uc("$key" . "_average")} = replace_undefined_value_to_default($conf_obj, $average);
-	$result->{uc("$key" . "_median")}  = replace_undefined_value_to_default($conf_obj, $median);
-	$result->{uc("$key" . "_stddev")}  = replace_undefined_value_to_default($conf_obj, $stddev);
-	$result->{uc("$key" . "_sum")}     = replace_undefined_value_to_default($conf_obj, $sum);
+	$result->{"$key" . "_min"}     = replace_undefined_value_to_default($conf_obj, $min);
+	$result->{"$key" . "_max"}     = replace_undefined_value_to_default($conf_obj, $max);
+	$result->{"$key" . "_average"} = replace_undefined_value_to_default($conf_obj, $average);
+	$result->{"$key" . "_median"}  = replace_undefined_value_to_default($conf_obj, $median);
+	$result->{"$key" . "_stddev"}  = replace_undefined_value_to_default($conf_obj, $stddev);
+	$result->{"$key" . "_sum"}     = replace_undefined_value_to_default($conf_obj, $sum);
 	
 	return;
 }
@@ -606,8 +623,8 @@ sub add_priority_data {
 	
 	foreach my $priority (@priorities) {
 		my @issues_with_priority = grep {$_->{fields}->{priority}->{name} =~ /^$priority$/ix} @{$issues};
-		$result->{uc("$query->{template_key}" . "_$priority")} = "" . $#issues_with_priority + 1;
-		$result->{uc("$query->{template_key}" . "_${priority}_JIRA_LINK")} = get_jira_link(@issues_with_priority);
+		$result->{"$query->{template_key}" . "_$priority"} = "" . $#issues_with_priority + 1;
+		$result->{"$query->{template_key}" . "_${priority}_JIRA_LINK"} = get_jira_link(@issues_with_priority);
 	}
 	
 	return;
@@ -618,7 +635,7 @@ sub add_period_data {
 	my $result = shift;
 	
 	if(defined $query->{period} and $query->{period}) {
-		$result->{uc("$query->{template_key}" . "_PERIOD_NAME")} = "" . get_period_name($query->{period});
+		$result->{"$query->{template_key}" . "_PERIOD_NAME"} = "" . get_period_name($query->{period});
 	}
 	
 	return;
