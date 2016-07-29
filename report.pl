@@ -167,8 +167,8 @@ sub create_report_file_from_template {
 			my $last_column = $report_worksheet->UsedRange->Columns->Count;
 			
 			my $range_for_copy_from_template = xl_range_formula("$sheet_name", 
-				0, $template_worksheet->UsedRange->Rows->Count,     # start and end rows
-				0, $template_worksheet->UsedRange->Columns->Count); # start and end columns
+				0, $template_worksheet->UsedRange->Rows->Count + 1,     # start and end rows
+				0, $template_worksheet->UsedRange->Columns->Count + 1); # start and end columns
 			
 			$template_worksheet->Range($range_for_copy_from_template)->Copy();
 			
