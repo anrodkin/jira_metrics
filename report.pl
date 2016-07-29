@@ -223,10 +223,18 @@ sub load_query_data {
 		
 		print "\nGetting data for $query->{template_key}...\n";
 		
-		@issues   = search_issues($jira, $query);
+		if(defined $query->{get_estimation_time} 
+			or defined $query->{get_time_for_statuses}
+			or defined $query->{order_by_priority}){
+			
+			@issues   = search_issues($jira, $query);
+			$result{"$query->{template_key}"} = "" . ($#issues + 1);
+		} else {
+			$result{"$query->{template_key}"} = get_issues_count($jira, $query);
+		}
+		
 		@subtasks = search_subtasks($jira, \@issues) if defined $query->{get_estimation_time};
 		
-		$result{"$query->{template_key}"} = "" . ($#issues + 1);
 		$result{"report_date"} = "" . today();
 		$result{"work_week_number"} = "" . get_work_week_number();
 		
@@ -236,16 +244,30 @@ sub load_query_data {
 		add_time_tracking_data($conf_obj, $query, \@issues, \@subtasks, \%result)
 	}
 	
-	my $save_keys_into_file = $conf_obj->{settings}->{save_keys_into_file};
-	
-	if(defined $save_keys_into_file and $save_keys_into_file) {
-		my @keys = sort keys %result;
-		open my $output_file_handle, ">", "available_keys.txt" or croak $!;
-		print $output_file_handle "$_=$result{$_}\n" foreach @keys;
-		close $output_file_handle;
-	}
+	save_keys_into_file($conf_obj, \%result);
 	
 	return \%result;
+}
+
+sub save_keys_into_file {
+	my $conf_obj = shift;
+	my $result   = shift;
+	
+	my $save_keys_into_file = $conf_obj->{settings}->{save_keys_into_file};
+	
+	return if not defined $save_keys_into_file or not $save_keys_into_file;
+	
+	my @keys = sort keys %{$result};
+	open my $output_file_handle, ">", "available_keys.txt" or croak $!;
+	
+	foreach my $key (@keys) {
+		my $out_string = "$key=" . ( defined $result->{$key} ? $result->{$key} : "" );
+		print $output_file_handle "$out_string\n";
+	}
+	
+	close $output_file_handle;
+	
+	return;
 }
 
 sub today {
@@ -276,14 +298,24 @@ sub get_work_week_number {
 	return $week_number;
 }
 
+sub get_issues_count {
+	my $jira_obj     = shift;
+	my $query        = shift;
+	my $search       = undef;
+	
+	$search = $jira_obj->POST('/search', undef, {
+		'jql' => $query->{query}
+	});
+
+	return defined $search->{total} ? $search->{total} : 0;
+}
+
 sub search_issues {
-	my $jira_obj = shift;
-	my $query = shift;
-	my @issues = ();
-	my @subtasks = ();
-	my $search = undef;
-	my $startAt = 0;
-	my $very_big_value = 100000;
+	my $jira_obj     = shift;
+	my $query        = shift;
+	my @issues       = ();
+	my $search       = undef;
+	my $startAt      = 0;
 	my $progress_bar = undef;
 	my $total_issues = undef;
 	
@@ -311,7 +343,7 @@ sub search_issues {
 		
 	} while ($search->{startAt} + $#{$search->{issues}} + 1 < $search->{total});
 	
-	$total_issues = $search->{total} if not defined $total_issues;
+	$total_issues     = $search->{total} if not defined $total_issues;
 	my $actual_issues = $#issues + 1;
 
 	print "Wrong number of issues!\nExpected: $total_issues\nActual: $actual_issues\n" if $total_issues != $actual_issues;
@@ -339,8 +371,7 @@ sub search_subtasks {
 	my @subtasks       = ();
 	my $total_subtasks = 0;
 	my $progress_bar   = undef;
-	
-	my @subtasks_keys = ();
+	my @subtasks_keys  = ();
 	my @issues_with_subtasks = grep { defined $_->{fields}->{subtasks} and $#{$_->{fields}->{subtasks}} >= 0 } @{$parent_issues};
 	
 	foreach my $issue (@issues_with_subtasks) {
@@ -351,7 +382,7 @@ sub search_subtasks {
 		
 	if($#subtasks_keys >= 0) {
 		$total_subtasks = $#subtasks_keys + 1;
-		$progress_bar = initialize_progress_bar($total_subtasks, "Subtasks");
+		$progress_bar   = initialize_progress_bar($total_subtasks, "Subtasks");
 	
 		my $query   = join(" or ", @subtasks_keys);
 		my $startAt = 0;
