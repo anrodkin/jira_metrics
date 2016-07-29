@@ -49,8 +49,8 @@ check_mandatory_configuration($configuration);
 add_additional_configuration($configuration);
 
 my $jira_settings = $configuration->{jira};
-my $jira     = connect_to_jira($jira_settings->{url}, $jira_settings->{login}, $jira_settings->{password});
-my $query_data     = load_query_data($jira, $configuration);
+my $jira          = connect_to_jira($jira_settings->{url}, $jira_settings->{login}, $jira_settings->{password});
+my $query_data    = load_query_data($jira, $configuration);
 
 make_keys_uppercase($query_data);
 create_report($configuration, $query_data);
@@ -213,6 +213,8 @@ sub convert_file_name_to_relative {
 sub load_query_data {
 	my $jira_obj = shift;
 	my $conf_obj = shift;
+	my @issues   = ();
+	my @subtasks = ();
 	
 	my %result = ();
 	
@@ -221,15 +223,17 @@ sub load_query_data {
 		
 		print "\nGetting data for $query->{template_key}...\n";
 		
-		my ($issues, $subtasks) = search_issues($jira, $query);
-		$result{"$query->{template_key}"} = "" . ($#{$issues} + 1);
+		@issues   = search_issues($jira, $query);
+		@subtasks = search_subtasks($jira, \@issues) if defined $query->{get_estimation_time};
+		
+		$result{"$query->{template_key}"} = "" . ($#issues + 1);
 		$result{"report_date"} = "" . today();
 		$result{"work_week_number"} = "" . get_work_week_number();
 		
 		add_period_data($query, \%result);
-		add_priority_data($query, $issues, \%result);
-		add_status_data($conf_obj, $query, $issues, \%result);
-		add_time_tracking_data($conf_obj, $query, $issues, $subtasks, \%result)
+		add_priority_data($query, \@issues, \%result);
+		add_status_data($conf_obj, $query, \@issues, \%result);
+		add_time_tracking_data($conf_obj, $query, \@issues, \@subtasks, \%result)
 	}
 	
 	my $save_keys_into_file = $conf_obj->{settings}->{save_keys_into_file};
@@ -284,38 +288,20 @@ sub search_issues {
 	my $total_issues = undef;
 	
 	do {
-		$search = $jira_obj->GET('/search', {
+		$search = $jira_obj->POST('/search', {
+			'expand' => "changelog"
+		}, {
 			'jql' => $query->{query},
-			'expand' => "changelog",
 			"startAt" => "$startAt"
 		});
 		
 		if(not defined $progress_bar and $search->{total} > 0 and $search->{total} > $search->{maxResults}) {
 			$total_issues = $search->{total};
-			
-			$progress_bar = String::ProgressBar->new( 
-				max          => $total_issues, 
-				length       => 60,
-				print_return => 1
-			);
+			$progress_bar = initialize_progress_bar($total_issues, "Issues")
 		}
 		
 		push @issues, @{$search->{issues}};
-		my $number_of_subtasks = add_subtasks($jira_obj, $search->{issues}, \@subtasks);
-		
-		if(defined $number_of_subtasks and $number_of_subtasks) {
-			$total_issues = $search->{total} if not defined $total_issues;
-			$total_issues += $number_of_subtasks;
-			
-			if($total_issues > $search->{maxResults}) {
-				$progress_bar = String::ProgressBar->new( 
-					max          => $total_issues, 
-					length       => 60,
-					print_return => 1
-				);
-			}
-		}
-		
+				
 		$startAt += $search->{maxResults};
 		
 		if(defined $progress_bar and $search->{total} > 0) {
@@ -326,21 +312,33 @@ sub search_issues {
 	} while ($search->{startAt} + $#{$search->{issues}} + 1 < $search->{total});
 	
 	$total_issues = $search->{total} if not defined $total_issues;
-	print "Wrong number of issues!\n" . 
-		"Expected: $search->{total}\n" . 
-		"Actual: "   . ($#issues + 1) . 
-		"\n" if $search->{total} != ($#issues + 1);
-	
-	#print Dumper(\@issues);
-	
-	return \@issues, \@subtasks;
+	my $actual_issues = $#issues + 1;
+
+	print "Wrong number of issues!\nExpected: $total_issues\nActual: $actual_issues\n" if $total_issues != $actual_issues;
+
+	return @issues;
 }
 
-sub add_subtasks {
-	my $jira_obj      = shift;
-	my $parent_issues = shift;
-	my $issues        = shift;
-	my $number_of_subtasks = 0;
+sub initialize_progress_bar {
+	my $total_issues = shift;
+	my $text         = shift;
+	
+	my $progress_bar = String::ProgressBar->new( 
+		max          => $total_issues, 
+		length       => 45,
+		print_return => 1,
+		text         => "$text"
+	);
+	
+	return $progress_bar;
+}
+
+sub search_subtasks {
+	my $jira_obj       = shift;
+	my $parent_issues  = shift;
+	my @subtasks       = ();
+	my $total_subtasks = 0;
+	my $progress_bar   = undef;
 	
 	my @subtasks_keys = ();
 	my @issues_with_subtasks = grep { defined $_->{fields}->{subtasks} and $#{$_->{fields}->{subtasks}} >= 0 } @{$parent_issues};
@@ -350,27 +348,38 @@ sub add_subtasks {
 			push @subtasks_keys, "key=$subtask->{key}";
 		}
 	}
-	
+		
 	if($#subtasks_keys >= 0) {
+		$total_subtasks = $#subtasks_keys + 1;
+		$progress_bar = initialize_progress_bar($total_subtasks, "Subtasks");
+	
 		my $query   = join(" or ", @subtasks_keys);
 		my $startAt = 0;
 		my $search  = undef;
 		
 		do {
-			$search = $jira_obj->GET('/search', {
+			$search = $jira_obj->POST('/search', {
+				'expand' => "changelog"
+			}, {
 				'jql' => "$query",
-				'expand' => "changelog",
 				"startAt" => "$startAt"
 			});
-			
-			push @{$issues}, @{$search->{issues}};
-			
-			$number_of_subtasks += $#{$search->{issues}} + 1;
+									
+			push @subtasks, @{$search->{issues}};
 			$startAt += $search->{maxResults};
+			
+			if(defined $progress_bar and $search->{total} > 0) {
+				$progress_bar->update($#subtasks + 1);
+				$progress_bar->write;
+			}
 		} while ($search->{startAt} + $#{$search->{issues}} + 1 < $search->{total});
+		
+		my $expected = $#subtasks_keys + 1;
+		my $actual   = $#subtasks + 1;
+		print "Wrong number of subtasks!\nExpected: $expected\nActual: $actual\n" if $expected != $actual;
 	}
 	
-	return $number_of_subtasks;
+	return @subtasks;
 }
 
 sub add_time_tracking_data {
