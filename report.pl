@@ -320,11 +320,10 @@ sub search_issues {
 	my $total_issues = undef;
 	
 	do {
-		$search = $jira_obj->POST('/search', {
-			'expand' => "changelog"
-		}, {
+		$search = $jira_obj->POST('/search', undef, {
 			'jql' => $query->{query},
-			"startAt" => "$startAt"
+			"startAt" => "$startAt",
+			'expand' => ["changelog"] # JIRA expects STRING for GET and ARRAY for POST
 		});
 		
 		if(not defined $progress_bar and $search->{total} > 0 and $search->{total} > $search->{maxResults}) {
@@ -389,11 +388,10 @@ sub search_subtasks {
 		my $search  = undef;
 		
 		do {
-			$search = $jira_obj->POST('/search', {
-				'expand' => "changelog"
-			}, {
+			$search = $jira_obj->POST('/search', undef, {
 				'jql' => "$query",
-				"startAt" => "$startAt"
+				"startAt" => "$startAt",
+				'expand' => ["changelog"] # JIRA expects STRING for GET and ARRAY for POST
 			});
 									
 			push @subtasks, @{$search->{issues}};
